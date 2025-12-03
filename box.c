@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include "nrutil.h"
 #include "gnuplot_i.h" 
-#define DT 0.05
+#define DT 0.01
 #define FNAMESIZE 64
 #define PI 3.14159265358979323846
 
@@ -20,9 +20,9 @@ typedef struct {
 typedef struct{
   int n;
   int fold,reg;
-  double f,w,ttot,b,k,d;
+  double f,w,ttot,b,kc,kd,d;
   double th,phi;
-  int nboxes,g,nb;
+  int nboxes,g,nb,num;
 } PAR;
 
 
@@ -174,6 +174,10 @@ void derivs(double x, double v[], double dv[]){
   fa[3]=cos(par.th);
   dvout=dvector(1,dim*2);  
   j = 1;
+
+  /* Calculate forces to build linear conections of type:
+        C=O=C=O=C=O=C   */
+
       for(i=((j-1)*(par.n/par.nb))+1;i<=(par.n/par.nb)*j;i++){
       if((i==(par.n/par.nb)*j) && (j<par.nb)){
       j++;
@@ -181,32 +185,37 @@ void derivs(double x, double v[], double dv[]){
       dd[i]=(1.-(d/(sqrt(pow((v[(3*i)-2]-v[(3*(i+1))-2]),2)+pow((v[(3*i)-1]-v[(3*(i+1))-1]),2)+pow((v[(3*i)]-v[(3*(i+1))]),2)))));
 	  
       
-      fx[i]=dd[i]*(v[3*(i+1)-2]-v[(3*i)-2]);
-      fy[i]=dd[i]*(v[3*(i+1)-1]-v[(3*i)-1]);
-      fz[i]=dd[i]*(v[3*(i+1)]-v[(3*i)]);   
+      fx[i]=par.kd*dd[i]*(v[3*(i+1)-2]-v[(3*i)-2]);
+      fy[i]=par.kd*dd[i]*(v[3*(i+1)-1]-v[(3*i)-1]);
+      fz[i]=par.kd*dd[i]*(v[3*(i+1)]-v[(3*i)]);   
       
+      /*Finish of linear conections*/
+
+     
     
       if(par.fold==1){
-      cc[i]=(1.-(d/(sqrt(pow((v[(3*i)-2]-v[3*(j*(par.n/par.nb)-i+1)-2]),2)+pow((v[(3*i)-1]-v[((3*(j*(par.n/par.nb)-i+1))-1)]),2)+pow((v[(3*i)]-v[3*(j*(par.n/par.nb)-i+1)]),2)))));
-      cx[i]=cc[i]*(v[(3*(j*(par.n/par.nb)-i+1))-2]-v[(3*i)-2]);
-      cy[i]=cc[i]*(v[(3*(j*(par.n/par.nb)-i+1))-1]-v[(3*i)-1]);
-      cz[i]=cc[i]*(v[(3*(j*(par.n/par.nb)-i+1))]-v[(3*i)]);
+        if(i==((par.n/par.nb)*(j/2)) || i==((par.n/par.nb)*(j/2))-1) cc[i]=0.0;
+        else{
+      cc[i]=(1.-((2.*d)/(sqrt(pow((v[(3*i)-2]-v[3*(j*(par.n/par.nb)-i+1)-2]),2)+pow((v[(3*i)-1]-v[((3*(j*(par.n/par.nb)-i+1))-1)]),2)+pow((v[(3*i)]-v[3*(j*(par.n/par.nb)-i+1)]),2)))));
+      }
+      cx[i]=par.kc*cc[i]*(v[(3*(j*(par.n/par.nb)-i+1))-2]-v[(3*i)-2]);
+      cy[i]=par.kc*cc[i]*(v[(3*(j*(par.n/par.nb)-i+1))-1]-v[(3*i)-1]);
+      cz[i]=par.kc*cc[i]*(v[(3*(j*(par.n/par.nb)-i+1))]-v[(3*i)]);
       }	
-      else if (par.fold==2){
-        if(i==(par.n/par.nb)*j/2 || i==((par.n/par.nb)*j)){
-        cc[i]=0.0;
-        cx[i]=0.0;
-        cy[i]=0.0;
-        cz[i]=0.0;
-        }
-      else{ 
-      cc[i]=(1.-(d/(sqrt(pow((v[(3*i)-2]-v[3*((j)*(par.n/par.nb)-i)-2]),2)+pow((v[(3*i)-1]-v[((3*((j)*(par.n/par.nb)-i))-1)]),2)+pow((v[(3*i)]-v[3*((j)*(par.n/par.nb)-i)]),2))))); 
-      cx[i]=cc[i]*(v[(3*((j)*(par.n/par.nb)-i))-2]-v[(3*i)-2]);
-      cy[i]=cc[i]*(v[(3*((j)*(par.n/par.nb)-i))-1]-v[(3*i)-1]);
-      cz[i]=cc[i]*(v[(3*((j)*(par.n/par.nb)-i))]-v[(3*i)]);
-      }
-      }
-      else if (par.fold==0){
+      cc[1]=0.0;
+      cx[1]=0.0;
+      cy[1]=0.0;
+      cz[1]=0.0;
+      cc[par.n]=0.0;
+      cx[par.n]=0.0;
+      cy[par.n]=0.0;
+      cz[par.n]=0.0;
+      
+      /*If par.fold=2  -> C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O
+            C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O
+      */
+
+      if (par.fold==0){
       cc[i]=0.0;
       cx[i]=0.0;
       cy[i]=0.0;
@@ -229,17 +238,17 @@ void derivs(double x, double v[], double dv[]){
       if((i==((par.n/par.nb)*j))&&(j<par.nb)){
       j++;
       } 
-    dvout[(3*i)-2+dim]=(par.k*(fx[i]-fx[i-1]+cx[i])+fa[1]*par.f*cos(par.w*x)-((par.b*v[(3*i)-2+(dim)])))/masa[i];
+    dvout[(3*i)-2+dim]=((fx[i]-fx[i-1]+cx[i])+fa[1]*par.f*cos(par.w*x)-((par.b*v[(3*i)-2+(dim)])))/masa[i];
     dvout[(3*i)-2]=v[(3*i)-2+(dim)];
     dv[(3*i)-2]=dvout[(3*i)-2];
     dv[(3*i)-2+dim]=dvout[(3*i)-2+dim];
 
-    dvout[(3*i)-1+(dim)]=(par.k*(fy[i]-fy[i-1]+cy[i])+fa[2]*par.f*cos(par.w*x)-((par.b*v[(3*i)-1+(dim)])))/masa[i] ;
+    dvout[(3*i)-1+(dim)]=((fy[i]-fy[i-1]+cy[i])+fa[2]*par.f*cos(par.w*x)-((par.b*v[(3*i)-1+(dim)])))/masa[i] ;
     dvout[(3*i)-1]=v[(3*i)-1+(dim)];
     dv[(3*i)-1]=dvout[(3*i)-1];
     dv[(3*i)-1+dim]=dvout[(3*i)-1+dim];
 
-    dvout[(3*i)+(dim)]=(par.k*(fz[i]-fz[i-1]+cz[i])-(par.g*9.8)+fa[3]*par.f*cos(par.w*x)-((par.b*v[(3*i)+(dim)])))/masa[i];    dvout[(3*i)]=v[(3*i)+(dim)];
+    dvout[(3*i)+(dim)]=((fz[i]-fz[i-1]+cz[i])-(par.g*9.8)+fa[3]*par.f*cos(par.w*x)-((par.b*v[(3*i)+(dim)])))/masa[i];    dvout[(3*i)]=v[(3*i)+(dim)];
     dv[(3*i)]=dvout[(3*i)];
     dv[(3*i)+dim]=dvout[(3*i)+dim];
    
@@ -355,17 +364,20 @@ void rkdumb(double vstart[], int nvar, int nstep,
     fprintf(gnuplot, "set xrange [%lf:%lf]\nset yrange [%lf:%lf]\nset zrange [%lf:%lf]\n",g.gxmin,g.gxmax,g.gymin,g.gymax,g.gzmin,g.gzmax);
     fprintf(gnuplot, "set xlabel 'x'\nset ylabel 'y'\nset zlabel 'z'\n");
     //fprintf(gnuplot, "set view 60, 30\n");
-    fprintf(gnuplot, "splot '-' with p pt 7 ps 1.5 notitle\n");//, '-' with labels notitle\n");
+   if(par.num==1) fprintf(gnuplot, "splot '-' with p pt 7 ps 1.5, '-' with labels notitle\n");
+    else fprintf(gnuplot, "splot '-' with p pt 7 ps 1\n");
     for (i = 0; i < n; i++) {
       fprintf(gnuplot, "%lf %lf %lf\n", particles[i].x, particles[i].y, particles[i].z);
     }
-    //fprintf(gnuplot, "e\n");
+    fprintf(gnuplot, "e\n");
+
+    if (par.num==1){
     /* Send particle indices as labels */
-    /*for (i = 0; i < n; i++) {
+        for (i = 0; i < n; i++) {
       fprintf(gnuplot, "%lf %lf %lf %d\n", particles[i].x, particles[i].y, particles[i].z, i);
-    }*/
-    //fprintf(gnuplot, "e\n");
-   
+    }
+    fprintf(gnuplot, "e\n");
+    }
     fflush(gnuplot);
 
     /* Check keyboard for pause/resume/quit (non-blocking) */
@@ -404,12 +416,9 @@ void rkdumb(double vstart[], int nvar, int nstep,
           usleep(100000);
         }
         count++; 
-    fprintf(gnuplot, "e\n");
-    fflush(gnuplot);
- 
+
    
    
-  count++; 
   }
 
   
@@ -451,7 +460,7 @@ int main(int argc, char *argv[]) {
     par.ttot = atof(argv[2]);
     par.f=atof(argv[3]);
     par.w=atof(argv[4]);
-    par.k=atof(argv[5]);
+    par.kd=atof(argv[5]);
     par.b=atof(argv[6]);
     par.g=atoi(argv[7]);
     par.reg=atoi(argv[8]);
@@ -460,6 +469,8 @@ int main(int argc, char *argv[]) {
     par.phi=atof(argv[11]);
     par.nb=atoi(argv[12]);
     par.fold=atoi(argv[13]);
+    par.num=atoi(argv[14]);
+    par.kc=par.kd/2; //constant for folded connections
     int steps;
         
     masa=dvector(1,par.n);
