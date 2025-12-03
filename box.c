@@ -19,10 +19,10 @@ typedef struct {
 } Particle;
 typedef struct{
   int n;
-  int fold,reg;
-  double f,w,ttot,b,kc,kd,d;
+  int fold;
+  double f,w,ttot,b,kc,kd,d,d_fold;
   double th,phi;
-  int nboxes,g,nb,num;
+  int nboxes,nb,num;
 } PAR;
 
 
@@ -176,27 +176,27 @@ void derivs(double x, double v[], double dv[]){
   j = 1;
 
   /* Calculate forces to build linear conections of type:
-        C=O=C=O=C=O=C   */
+        O=C=O=C=O=C=O...   */
 
       for(i=((j-1)*(par.n/par.nb))+1;i<=(par.n/par.nb)*j;i++){
       if((i==(par.n/par.nb)*j) && (j<par.nb)){
       j++;
       } 
       dd[i]=(1.-(d/(sqrt(pow((v[(3*i)-2]-v[(3*(i+1))-2]),2)+pow((v[(3*i)-1]-v[(3*(i+1))-1]),2)+pow((v[(3*i)]-v[(3*(i+1))]),2)))));
-	  
-      
-      fx[i]=par.kd*dd[i]*(v[3*(i+1)-2]-v[(3*i)-2]);
+	    fx[i]=par.kd*dd[i]*(v[3*(i+1)-2]-v[(3*i)-2]);
       fy[i]=par.kd*dd[i]*(v[3*(i+1)-1]-v[(3*i)-1]);
       fz[i]=par.kd*dd[i]*(v[3*(i+1)]-v[(3*i)]);   
       
       /*Finish of linear conections*/
-
-     
-    
+      /*Make bonds betwen segments ej:
+      O=C=O=C=O=C
+        | | | | |<-(this is par.fold=1 and this last bond is the one made before as =)          
+      C=O=C=O=C=O
+      */
       if(par.fold==1){
-        if(i==((par.n/par.nb)*(j/2)) || i==((par.n/par.nb)*(j/2))-1) cc[i]=0.0;
+        if(i==((par.n/par.nb)*(j/2)) || i==((par.n/par.nb)*(j/2))-1) cc[i]=0.0; /*Fisrt and last are not conected*/
         else{
-      cc[i]=(1.-((2.*d)/(sqrt(pow((v[(3*i)-2]-v[3*(j*(par.n/par.nb)-i+1)-2]),2)+pow((v[(3*i)-1]-v[((3*(j*(par.n/par.nb)-i+1))-1)]),2)+pow((v[(3*i)]-v[3*(j*(par.n/par.nb)-i+1)]),2)))));
+      cc[i]=(1.-((par.d_fold)/(sqrt(pow((v[(3*i)-2]-v[3*(j*(par.n/par.nb)-i+1)-2]),2)+pow((v[(3*i)-1]-v[((3*(j*(par.n/par.nb)-i+1))-1)]),2)+pow((v[(3*i)]-v[3*(j*(par.n/par.nb)-i+1)]),2)))));
       }
       cx[i]=par.kc*cc[i]*(v[(3*(j*(par.n/par.nb)-i+1))-2]-v[(3*i)-2]);
       cy[i]=par.kc*cc[i]*(v[(3*(j*(par.n/par.nb)-i+1))-1]-v[(3*i)-1]);
@@ -210,10 +210,6 @@ void derivs(double x, double v[], double dv[]){
       cx[par.n]=0.0;
       cy[par.n]=0.0;
       cz[par.n]=0.0;
-      
-      /*If par.fold=2  -> C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O
-            C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O=C=O
-      */
 
       if (par.fold==0){
       cc[i]=0.0;
@@ -248,7 +244,7 @@ void derivs(double x, double v[], double dv[]){
     dv[(3*i)-1]=dvout[(3*i)-1];
     dv[(3*i)-1+dim]=dvout[(3*i)-1+dim];
 
-    dvout[(3*i)+(dim)]=((fz[i]-fz[i-1]+cz[i])-(par.g*9.8)+fa[3]*par.f*cos(par.w*x)-((par.b*v[(3*i)+(dim)])))/masa[i];    dvout[(3*i)]=v[(3*i)+(dim)];
+    dvout[(3*i)+(dim)]=((fz[i]-fz[i-1]+cz[i])+fa[3]*par.f*cos(par.w*x)-((par.b*v[(3*i)+(dim)])))/masa[i];    dvout[(3*i)]=v[(3*i)+(dim)];
     dv[(3*i)]=dvout[(3*i)];
     dv[(3*i)+dim]=dvout[(3*i)+dim];
    
@@ -374,7 +370,7 @@ void rkdumb(double vstart[], int nvar, int nstep,
     if (par.num==1){
     /* Send particle indices as labels */
         for (i = 0; i < n; i++) {
-      fprintf(gnuplot, "%lf %lf %lf %d\n", particles[i].x, particles[i].y, particles[i].z, i);
+      fprintf(gnuplot, "%lf %lf %lf %d\n", particles[i].x, particles[i].y, particles[i].z, i+1);
     }
     fprintf(gnuplot, "e\n");
     }
@@ -451,7 +447,7 @@ int main(int argc, char *argv[]) {
    
     if (argc < 14) {
 		       
-    printf("Uso: %s <N> <ttot> <f_ext> <w_ext> <k(bond)> <b(damp)> <g(0,1)> <reg> <d> <th> <phi> <nb> <fold>\n", argv[0]);
+    printf("Uso: %s <N> <ttot> <f_ext> <w_ext> <k(bond)> <k(fold)> <b(damp)> <d> <d(fold)> <th> <phi> <nb> <fold> <num_part>\n", argv[0]);
     exit(1);
 	}
 
@@ -461,21 +457,21 @@ int main(int argc, char *argv[]) {
     par.f=atof(argv[3]);
     par.w=atof(argv[4]);
     par.kd=atof(argv[5]);
-    par.b=atof(argv[6]);
-    par.g=atoi(argv[7]);
-    par.reg=atoi(argv[8]);
-    par.d=atof(argv[9]);
+    par.kc=atof(argv[6]);
+    par.b=atof(argv[7]);
+    par.d=atof(argv[8]);
+    par.d_fold=atof(argv[9]);
     par.th=atof(argv[10]);
     par.phi=atof(argv[11]);
     par.nb=atoi(argv[12]);
     par.fold=atoi(argv[13]);
     par.num=atoi(argv[14]);
-    par.kc=par.kd/2; //constant for folded connections
+    //par.kc=par.kd/2; //constant for folded connections
     int steps;
         
     masa=dvector(1,par.n);
     steps = par.ttot/DT;
-    int reg=par.reg; //recording frequency
+    int reg=1; //recording frequency
     int rstep=0;
     par.nboxes=1;
     int n=par.n;
