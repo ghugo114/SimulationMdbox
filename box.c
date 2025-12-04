@@ -6,6 +6,7 @@
 #include <math.h>
 #include <termios.h>
 #include <unistd.h>
+#include <ncurses.h>
 #include "nrutil.h"
 #include "gnuplot_i.h" 
 #define DT 0.01
@@ -261,6 +262,94 @@ void derivs(double x, double v[], double dv[]){
 
   }
 
+/* Display and edit simulation parameters using ncurses */
+void display_and_edit_parameters(PAR *par) {
+  initscr();
+  cbreak();
+  noecho();
+  keypad(stdscr, TRUE);
+
+  int max_y, max_x;
+  getmaxyx(stdscr, max_y, max_x);
+
+  WINDOW *param_win = newwin(30, 60, 2, (max_x - 60) / 2);
+  box(param_win, 0, 0);
+
+  int selected = 0;
+  int running = 1;
+
+  while (running) {
+    wclear(param_win);
+    box(param_win, 0, 0);
+    mvwprintw(param_win, 1, 2, "=== SIMULATION PARAMETERS ===");
+    mvwprintw(param_win, 2, 2, "Use UP/DOWN arrows to select, ENTER to edit, 'q' to exit");
+    
+    int row = 4;
+    char *field_names[] = {
+      "n (particles)", "ttot (total time)", "f (ext force)", "w (frequency)",
+      "k (bond const)", "k (folding","b (damping)", "d (chain)", "d_fold (folding)",
+      "th (theta)", "phi (phi)", "nb (num boxes)", "fold (folding)","num(swow nums=1)"
+    };
+    
+    mvwprintw(param_win, row++, 4, "n:        %d", par->n);
+    mvwprintw(param_win, row++, 4, "ttot:     %.4f", par->ttot);
+    mvwprintw(param_win, row++, 4, "f:        %.4f", par->f);
+    mvwprintw(param_win, row++, 4, "w:        %.4f", par->w);
+    mvwprintw(param_win, row++, 4, "kd:        %.4f", par->kd);
+    mvwprintw(param_win, row++, 4, "kc:        %.4f", par->kc);
+    mvwprintw(param_win, row++, 4, "b:        %.4f", par->b);
+    mvwprintw(param_win, row++, 4, "d:      %.4f", par->d);
+    mvwprintw(param_win, row++, 4, "d_fold:        %.4f", par->d_fold);
+    mvwprintw(param_win, row++, 4, "th:       %.4f", par->th);
+    mvwprintw(param_win, row++, 4, "phi:      %.4f", par->phi);
+    mvwprintw(param_win, row++, 4, "nb:       %d", par->nb);
+    mvwprintw(param_win, row++, 4, "fold:     %d", par->fold);
+    mvwprintw(param_win, row++, 4, "num:      %d", par->num);
+
+    /* Highlight selected line */
+    int highlight_row = 4 + selected;
+    mvwchgat(param_win, highlight_row, 4, 40, A_REVERSE, 0, NULL);
+
+    wrefresh(param_win);
+
+    int ch = getch();
+    if (ch == KEY_UP && selected > 0) selected--;
+    else if (ch == KEY_DOWN && selected < 13) selected++;
+    else if (ch == '\n') {
+      /* Edit selected parameter */
+      char input[20];
+      echo();
+      mvwprintw(param_win, 28, 4, "Enter new value: ");
+      wgetstr(param_win, input);
+      noecho();
+
+      if (strlen(input) > 0) {
+        switch (selected) {
+          case 0: par->n = atoi(input); break;
+          case 1: par->ttot = atof(input); break;
+          case 2: par->f = atof(input); break;
+          case 3: par->w = atof(input); break;
+          case 4: par->kd = atof(input); break;
+          case 5: par->kc = atof(input); break;
+          case 6: par->b = atof(input); break;
+          case 7: par->d = atof(input); break;
+          case 8: par->d_fold = atof(input); break;
+          case 9: par->th = atof(input); break;
+          case 10: par->phi = atof(input); break;
+          case 11: par->nb = atoi(input); break;
+          case 12: par->fold = atoi(input); break;
+          case 13: par->num = atoi(input); break;
+        }
+      }
+    } else if (ch == 'q' || ch == 'Q') {
+      running = 0;
+    }
+  }
+
+  delwin(param_win);
+  endwin();
+}
+
 void rkdumb(double vstart[], int nvar, int nstep,
   void (*derivs)(double, double [], double [])){
   void rk4(double y[], double dydx[], int n, double x, double h, double yout[],
@@ -361,7 +450,7 @@ void rkdumb(double vstart[], int nvar, int nstep,
     fprintf(gnuplot, "set xlabel 'x'\nset ylabel 'y'\nset zlabel 'z'\n");
     //fprintf(gnuplot, "set view 60, 30\n");
    if(par.num==1) fprintf(gnuplot, "splot '-' with p pt 7 ps 1.5, '-' with labels notitle\n");
-    else fprintf(gnuplot, "splot '-' with p pt 7 ps 1\n");
+    else fprintf(gnuplot, "splot '-' with lp pt 7 ps 2\n");
     for (i = 0; i < n; i++) {
       fprintf(gnuplot, "%lf %lf %lf\n", particles[i].x, particles[i].y, particles[i].z);
     }
@@ -494,7 +583,7 @@ int main(int argc, char *argv[]) {
                            (rand() / (double)RAND_MAX - 0.5) * 2,
                            (rand() / (double)RAND_MAX - 0.5) * 2,
                            (rand() / (double)RAND_MAX - 0.5) * 2,
-                           ((1+pow(-1,i))/2)*2.66+((1+pow(-1,i+1))/2)*1.99);
+                           ((1+pow(-1,i))/2)*1.99+((1+pow(-1,i+1))/2)*1.99);
     }
 
   
@@ -510,27 +599,25 @@ int main(int argc, char *argv[]) {
        
     armodexy(vstart, particles, n);
     int opc,gopc;
+    
+    /* Display parameters on startup */
+    display_and_edit_parameters(&par);
+    
     rkdumb(vstart, dim, steps, derivs);
- /*
-    opc=1;
-  scanf("Sigo igual?",&opc);
-  while(opc==1){
-  printf("Continúo con las coordenadas actuales cambiando parametros o leo sistema.dat?(1 sigo - 2 leo cord): ");
-  scanf("%d", &opc);
-  printf("Parámetros anteriores - ga,f_ext,w_ext: %lf\t%lf\t%lf\t%lf\t%lf\n",par.b,par.f,par.w,par.th,par.phi);
-  scanf("%lf,%lf,%lf,%lf,%lf",&nga,&nf,&nw,&nth,&nphi);
-  printf("Nuevos parámetros ingresados continúo %lf\n: ",par.ttot);
-  par.b=nga;
-  par.f=nf;
-  par.w=nw;
-  par.th=nth;
-  par.phi=nphi;
-  
-  armodexy(vcont, particles, n);
-  rkdumb(vcont, dim, steps, derivs);
-
-  
-  }*/
+    
+    /* After simulation, show parameters again for editing before re-run */
+    printf("\n\nSimulation completed. Edit parameters for next run?\n");
+    opc = 1;
+    while(opc == 1) {
+      display_and_edit_parameters(&par);
+      printf("Run again? (1=yes, 0=no): ");
+      scanf("%d", &opc);
+      if (opc == 1) {
+        steps = par.ttot / DT;
+        armodexy(vstart, particles, n);
+        rkdumb(vstart, dim, steps, derivs);
+      }
+    }
 
  free_dvector(masa,1,par.n);
  return 0;
