@@ -9,7 +9,8 @@
 #include <ncurses.h>
 #include "nrutil.h"
 #include "gnuplot_i.h" 
-#define DT 0.01
+#define DT 0.05
+
 #define FNAMESIZE 64
 #define PI 3.14159265358979323846
 
@@ -17,6 +18,7 @@ typedef struct {
     double x, y, z;
     double vx, vy, vz;
     double mass;
+  char name[FNAMESIZE];
 } Particle;
 typedef struct{
   int n;
@@ -90,14 +92,16 @@ double *mat_vect(double *v, double **mat,int n) {
   return(vt);
 }
 void initialize_particle(Particle *p, double x, double y, double z, 
-                         double vx, double vy, double vz, double mass) {
-    p->x = x;
-    p->y = y;
-    p->z = z;
-    p->vx = vx;
-    p->vy = vy;
-    p->vz = vz;
-    p->mass = mass;
+             double vx, double vy, double vz, const char *name, double mass) {
+  p->x = x;
+  p->y = y;
+  p->z = z;
+  p->vx = vx;
+  p->vy = vy;
+  p->vz = vz;
+  p->mass = mass;
+  if(name) strncpy(p->name, name, FNAMESIZE-1);
+  p->name[FNAMESIZE-1] = '\0';
 }
 void armodexy(double *v, Particle *p,int part){
   int i;
@@ -127,30 +131,72 @@ for (i = 1;i<=part;i++ ){
   }
  }
 
+/* Return simulation-unit mass for an element symbol.
+   Adjust the values below to match your simulation units. */
+double sim_mass_for(const char *symbol) {
+  if (!symbol) return 1.0;
+  if (strcmp(symbol, "C") == 0) return 1.99;    /* Carbon (sim units) */
+  if (strcmp(symbol, "N") == 0) return 2.32;    /* Nitrogen (sim units) - example */
+  if (strcmp(symbol, "O") == 0) return 2.66;    /* Oxygen (sim units) - example */
+  if (strcmp(symbol, "H") == 0) return 0.14;    /* Hydrogen (sim units) - example */
+  if (strcmp(symbol, "S") == 0) return 32.06;   /* Sulfur (placeholder) */
+  return 1.0; /* default */
+}
+
+/* Build a simple repeating unit: C-N-C-C-N-C pattern.
+   The function fills the provided particles array in-place for up to
+   `residues * 6` atoms. Positions are placed along +X for simplicity.
+*/
+void build_chain(Particle *particles, int residues) {
+  if (!particles || residues <= 0) return;
+  const char *pattern[3] = {"C", "N", "C"};
+  int atoms_per_res = 3;
+  int total_atoms = residues * atoms_per_res;
+  double x = 0.1, y = 0.5, z = 0.5; /* centered in box */
+  double spacing = 0.15; /* approximate bond spacing */
+  int idx = 0;
+  int count=0;
+  for (int r = 0; r < residues; r++) {
+    for (int j = 0; j < atoms_per_res; j++) {
+      const char *sym = pattern[j];
+      double mass = sim_mass_for(sym);
+         initialize_particle(&particles[idx],
+                     rand() % 10, rand() % 10, rand() % 10,
+                   (rand() / (double)RAND_MAX - 0.5) * 2,
+                   (rand() / (double)RAND_MAX - 0.5) * 2,
+                   (rand() / (double)RAND_MAX - 0.5) * 2,
+                   sym, mass);
+       idx++;
+    }
+    /* small extra gap between residues */
+    x += 0.04;
+  }
+}
+
 
 void apply_boundary_conditions(Particle *p){
     for(int i=0;i<par.n;i++){
-    if (p[i].x < 0.0 || p[i].x > 10.0) p[i].vx *= -1.;
-    if (p[i].y < 0.0 || p[i].y > 10.0) p[i].vy *= -1.;
-    if (p[i].z < 0.0 || p[i].z > 10.0) p[i].vz *= -1.;
+    if (p[i].x < 0.0 || p[i].x > 100.0) p[i].vx *= -1.;
+    if (p[i].y < 0.0 || p[i].y > 100.0) p[i].vy *= -1.;
+    if (p[i].z < 0.0 || p[i].z > 100.0) p[i].vz *= -1.;
 
     if (p[i].x < 0.00) p[i].x = 0.0;
-    if (p[i].x > 10.0) p[i].x = 10.0;
+    if (p[i].x > 100.0) p[i].x = 100.0;
     if (p[i].y < 0.00) p[i].y = 0.0;
-    if (p[i].y > 10.0) p[i].y = 10.0;
+    if (p[i].y > 100.0) p[i].y = 100.0;
     if (p[i].z < 0.00) p[i].z = 0.0;
-    if (p[i].z > 10.0) p[i].z = 10.0;
+    if (p[i].z > 100.0) p[i].z = 100.0;
     }
 }
 
 void record_positions(double t,Particle *particles, int n, FILE *arch) {
 	for (int i = 0; i < n; i++){
-	fprintf(arch, "%d\t%f\t%lf\t%lf\t%lf\t%lf\t%lf\t%f\n",i,particles[i].x, particles[i].y, particles[i].z,particles[i].vx, particles[i].vy, particles[i].vz,particles[i].mass);
+  fprintf(arch, "%d\t%s\t%f\t%lf\t%lf\t%lf\t%lf\t%lf\t%f\n", i, particles[i].name, particles[i].x, particles[i].y, particles[i].z, particles[i].vx, particles[i].vy, particles[i].vz, particles[i].mass);
 }
 fclose(arch);
 } 
 
-
+ 
     
 void derivs(double x, double v[], double dv[]){
   int i,dim;  
@@ -184,15 +230,16 @@ void derivs(double x, double v[], double dv[]){
       j++;
       } 
       dd[i]=(1.-(d/(sqrt(pow((v[(3*i)-2]-v[(3*(i+1))-2]),2)+pow((v[(3*i)-1]-v[(3*(i+1))-1]),2)+pow((v[(3*i)]-v[(3*(i+1))]),2)))));
-	    fx[i]=par.kd*dd[i]*(v[3*(i+1)-2]-v[(3*i)-2]);
+	    
+      fx[i]=par.kd*dd[i]*(v[3*(i+1)-2]-v[(3*i)-2]);
       fy[i]=par.kd*dd[i]*(v[3*(i+1)-1]-v[(3*i)-1]);
       fz[i]=par.kd*dd[i]*(v[3*(i+1)]-v[(3*i)]);   
       
       /*Finish of linear conections*/
       /*Make bonds betwen segments ej:
-      O=C=O=C=O=C
+      C=N=C=C=N=C
         | | | | |<-(this is par.fold=1 and this last bond is the one made before as =)          
-      C=O=C=O=C=O
+                C=N=C=C=N=C
       */
       if(par.fold==1){
         if(i==((par.n/par.nb)*(j/2)) || i==((par.n/par.nb)*(j/2))-1) cc[i]=0.0; /*Fisrt and last are not conected*/
@@ -245,7 +292,8 @@ void derivs(double x, double v[], double dv[]){
     dv[(3*i)-1]=dvout[(3*i)-1];
     dv[(3*i)-1+dim]=dvout[(3*i)-1+dim];
 
-    dvout[(3*i)+(dim)]=((fz[i]-fz[i-1]+cz[i])+fa[3]*par.f*cos(par.w*x)-((par.b*v[(3*i)+(dim)])))/masa[i];    dvout[(3*i)]=v[(3*i)+(dim)];
+    dvout[(3*i)+(dim)]=((fz[i]-fz[i-1]+cz[i])+fa[3]*par.f*cos(par.w*x)-((par.b*v[(3*i)+(dim)])))/masa[i];    
+    dvout[(3*i)]=v[(3*i)+(dim)];
     dv[(3*i)]=dvout[(3*i)];
     dv[(3*i)+dim]=dvout[(3*i)+dim];
    
@@ -420,8 +468,7 @@ void rkdumb(double vstart[], int nvar, int nstep,
     coord_i(v, particles, n);
     apply_boundary_conditions(particles);
     armodexy(v,particles,n);
-    
-    /* Update axis ranges based on current particle positions */
+     /*  Update axis ranges based on current particle positions */
     double xmin = particles[0].x, xmax = particles[0].x;
     double ymin = particles[0].y, ymax = particles[0].y;
     double zmin = particles[0].z, zmax = particles[0].z;
@@ -432,37 +479,40 @@ void rkdumb(double vstart[], int nvar, int nstep,
       if (particles[i].y > ymax) ymax = particles[i].y;
       if (particles[i].z < zmin) zmin = particles[i].z;
       if (particles[i].z > zmax) zmax = particles[i].z;
-    }
-    /* Add padding to ranges */
+  /*     Add padding to ranges */
     double xpad = (xmax - xmin) * 0.1;
     double ypad = (ymax - ymin) * 0.1;
     double zpad = (zmax - zmin) * 0.1;
+  
     g.gxmin = xmin - xpad;
     g.gxmax = xmax + xpad;
     g.gymin = ymin - ypad;
     g.gymax = ymax + ypad;
     g.gzmin = zmin - zpad;
     g.gzmax = zmax + zpad;
-    
- /* Send current x-y-z particle positions to gnuplot for live 3D plotting */
+   }
+   /* Send current x-y-z particle positions to gnuplot for live 3D plotting */
     fprintf(gnuplot, "set title 'Particles (x,y,z) at t=%lf %s (left-click to pause)'\n", x, paused ? "[PAUSED]" : "");
     fprintf(gnuplot, "set xrange [%lf:%lf]\nset yrange [%lf:%lf]\nset zrange [%lf:%lf]\n",g.gxmin,g.gxmax,g.gymin,g.gymax,g.gzmin,g.gzmax);
     fprintf(gnuplot, "set xlabel 'x'\nset ylabel 'y'\nset zlabel 'z'\n");
     //fprintf(gnuplot, "set view 60, 30\n");
-   if(par.num==1) fprintf(gnuplot, "splot '-' with p pt 7 ps 1.5, '-' with labels notitle\n");
+    if(par.num==1) fprintf(gnuplot, "splot '-' with lp pt 7 ps 2, '-' with labels notitle\n");
+    if(par.num==2) fprintf(gnuplot, "splot '-' with lp pt 7 ps 2, '-' with labels notitle\n");
+
     else fprintf(gnuplot, "splot '-' with lp pt 7 ps 2\n");
     for (i = 0; i < n; i++) {
       fprintf(gnuplot, "%lf %lf %lf\n", particles[i].x, particles[i].y, particles[i].z);
     }
     fprintf(gnuplot, "e\n");
 
-    if (par.num==1){
+    if (par.num==2){
     /* Send particle indices as labels */
         for (i = 0; i < n; i++) {
-      fprintf(gnuplot, "%lf %lf %lf %d\n", particles[i].x, particles[i].y, particles[i].z, i+1);
+      fprintf(gnuplot, "%lf %lf %lf %s\n", particles[i].x, particles[i].y, particles[i].z, particles[i].name);
     }
     fprintf(gnuplot, "e\n");
     }
+
     fflush(gnuplot);
 
     /* Check keyboard for pause/resume/quit (non-blocking) */
@@ -557,7 +607,7 @@ int main(int argc, char *argv[]) {
     par.num=atoi(argv[14]);
     //par.kc=par.kd/2; //constant for folded connections
     int steps;
-        
+    FILE *arch1;   
     masa=dvector(1,par.n);
     steps = par.ttot/DT;
     int reg=1; //recording frequency
@@ -568,26 +618,53 @@ int main(int argc, char *argv[]) {
     int dim=6*n_particles;
     particles = (Particle *)malloc(n * sizeof(Particle)); 
     g.gxmin=0.0;
-    g.gxmax=10.0;
+    g.gxmax=20.0;
     g.gymin=0.0;
-    g.gymax=10.0;
+    g.gymax=20.0;
     g.gzmin=0.0;
-    g.gzmax=10.0;
+    g.gzmax=20.0;
     int i;      
 
-   // Initialize particles with random positions and velocities
-    
-    for (i = 0; i < n_particles; i++) {
+     // Initialize particles: either build an alanine-like chain (if par.num==2)
+     // or random positions/velocities otherwise.
+    if (par.num == 2) {
+      int residues = par.n / 3; /* C-N-C pattern -> 3 atoms per residue */
+      if (residues < 1) residues = 1;
+      build_chain(particles, residues);
+    } else {
+      for (i = 0; i < n_particles; i++) {
+        double mass = ((1+pow(-1,i))/2)*1.99+((1+pow(-1,i+1))/2)*2.66;
         initialize_particle(&particles[i], 
-                           rand() % 10, rand() % 10, rand() % 10,
-                           (rand() / (double)RAND_MAX - 0.5) * 2,
-                           (rand() / (double)RAND_MAX - 0.5) * 2,
-                           (rand() / (double)RAND_MAX - 0.5) * 2,
-                           ((1+pow(-1,i))/2)*1.99+((1+pow(-1,i+1))/2)*1.99);
+                   rand() % 10, rand() % 10, rand() % 10,
+                   (rand() / (double)RAND_MAX - 0.5) * 2,
+                   (rand() / (double)RAND_MAX - 0.5) * 2,
+                   (rand() / (double)RAND_MAX - 0.5) * 2,
+                   "C", mass);
+      }
     }
-
-  
-
+    /*
+/* Abrir Condiciones iniciales */
+  /*if(par.num==-1){
+	 
+    if((arch1=fopen("datos.dat", "r")) == NULL){
+    printf("No se puede leer el archivo/%s\n","cond_in_1.dat");
+  }
+  else
+    printf(" - Datos de condiciones corrida anterior y masas cargados\n");
+    int k;
+    double tfin,aa[6];  
+  while(fscanf(arch1,"%d\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n",&k,&aa[1],&aa[2],&aa[3],&aa[4],&aa[5],&tfin)!=EOF){
+      particles[k].x=aa[1];
+      particles[k].y=aa[2];
+      particles[k].z=aa[3];
+      particles[k].vx=aa[4];
+      particles[k].vy=aa[5];
+      particles[k].vz=tfin;
+      particles[k].mass=aa[6];
+    }     
+  }
+  fclose(arch1);
+  */
     for (i = 1; i <=n; i++){
         masa[i]=particles[i-1].mass;
     } 
