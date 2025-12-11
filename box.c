@@ -10,7 +10,7 @@
 #include "nrutil.h"
 #include "gnuplot_i.h" 
 #define DT 0.05
-
+#define Q 1.6
 #define FNAMESIZE 64
 #define PI 3.14159265358979323846
 
@@ -18,14 +18,15 @@ typedef struct {
     double x, y, z;
     double vx, vy, vz;
     double mass;
+    double charge;
   char name[FNAMESIZE];
 } Particle;
 typedef struct{
   int n;
   int fold;
-  double f,w,ttot,b,kc,kd,d,d_fold;
+  double f,w,ttot,b,kc,kd,kang,d,d_fold;
   double th,phi;
-  int nboxes,nb,num;
+  int nboxes,nb,num,mol;
 } PAR;
 
 
@@ -91,8 +92,29 @@ double *mat_vect(double *v, double **mat,int n) {
       vt[i]+=mat[i][j]*v[j];
   return(vt);
 }
+
+double vect_dot_vect(double *v, double *w) {
+  double vw;
+  int i, j;
+ vw=0.0;
+    for(i = 1; i <= 3; i++)
+      vw += v[i]*w[i];
+   return(vw);
+}
+
+double *vect_cross_vect(double *v, double *w){
+	double *vw;
+	int i,j;
+	vw=dvector(1,3);
+	vw[1]=v[2]*w[3]-v[3]*w[2];
+	vw[2]=-(v[1]*w[3]-v[3]*w[1]);
+	vw[3]=v[1]*w[2]-v[2]*w[1];
+	return(vw);
+}
+
+
 void initialize_particle(Particle *p, double x, double y, double z, 
-             double vx, double vy, double vz, const char *name, double mass) {
+             double vx, double vy, double vz, const char *name, double mass, double charge) {
   p->x = x;
   p->y = y;
   p->z = z;
@@ -100,6 +122,7 @@ void initialize_particle(Particle *p, double x, double y, double z,
   p->vy = vy;
   p->vz = vz;
   p->mass = mass;
+  p->charge= charge;
   if(name) strncpy(p->name, name, FNAMESIZE-1);
   p->name[FNAMESIZE-1] = '\0';
 }
@@ -149,11 +172,15 @@ double sim_mass_for(const char *symbol) {
 */
 void build_chain(Particle *particles, int residues) {
   if (!particles || residues <= 0) return;
-  const char *pattern[3] = {"C", "N", "C"};
+  const char *pattern[3] = {"N", "C", "C"};
+  int q[3];
+  q[0]=1;
+  q[1]=-1;
+  q[2]=0;
   int atoms_per_res = 3;
   int total_atoms = residues * atoms_per_res;
-  double x = 0.1, y = 0.5, z = 0.5; /* centered in box */
-  double spacing = 0.15; /* approximate bond spacing */
+  double x = 5, y = 5, z = 5; /* centered in box */
+  double spacing = 1.5; /* approximate bond spacing */
   int idx = 0;
   int count=0;
   for (int r = 0; r < residues; r++) {
@@ -161,31 +188,65 @@ void build_chain(Particle *particles, int residues) {
       const char *sym = pattern[j];
       double mass = sim_mass_for(sym);
          initialize_particle(&particles[idx],
-                     rand() % 10, rand() % 10, rand() % 10,
+                     x, y, z ,
                    (rand() / (double)RAND_MAX - 0.5) * 2,
                    (rand() / (double)RAND_MAX - 0.5) * 2,
                    (rand() / (double)RAND_MAX - 0.5) * 2,
-                   sym, mass);
-       idx++;
+                   sym, mass,q[j]);
+          x += spacing; 
+          count++;
+          idx++;
     }
-    /* small extra gap between residues */
-    x += 0.04;
+    x+= 0.4;
+    z += 0.4;
+   
   }
 }
 
+void build_co2(Particle *particles, int residues) {
+  if (!particles || residues <= 0) return;
+  const char *pattern[3] = {"O", "C", "O"};
+  int q[3];
+  q[0]=1;
+  q[1]=-1;
+  q[2]=0;
+  int atoms_per_res = 3;
+  int total_atoms = residues * atoms_per_res;
+  double x = 5, y = 5, z = 5; /* centered in box */
+  double spacing = 1.5; /* approximate bond spacing */
+  int idx = 0;
+  int count=0;
+  for (int r = 0; r < residues; r++) {
+    for (int j = 0; j < atoms_per_res; j++) {
+      const char *sym = pattern[j];
+      double mass = sim_mass_for(sym);
+         initialize_particle(&particles[idx],
+                     x, y, z ,
+                   (rand() / (double)RAND_MAX - 0.5) * 2,
+                   (rand() / (double)RAND_MAX - 0.5) * 2,
+                   (rand() / (double)RAND_MAX - 0.5) * 2,
+                   sym, mass,q[j]);
+          x += spacing; 
+          count++;
+          idx++;
+    }
+    x+= 0.4;
+    z += 0.4;
+  }
+}
 
 void apply_boundary_conditions(Particle *p){
     for(int i=0;i<par.n;i++){
-    if (p[i].x < 0.0 || p[i].x > 100.0) p[i].vx *= -1.;
-    if (p[i].y < 0.0 || p[i].y > 100.0) p[i].vy *= -1.;
-    if (p[i].z < 0.0 || p[i].z > 100.0) p[i].vz *= -1.;
+    if (p[i].x < 0.0 || p[i].x > 10.0) p[i].vx *= -1.;
+    if (p[i].y < 0.0 || p[i].y > 10.0) p[i].vy *= -1.;
+    if (p[i].z < 0.0 || p[i].z > 10.0) p[i].vz *= -1.;
 
     if (p[i].x < 0.00) p[i].x = 0.0;
-    if (p[i].x > 100.0) p[i].x = 100.0;
+    if (p[i].x > 10.0) p[i].x = 10.0;
     if (p[i].y < 0.00) p[i].y = 0.0;
-    if (p[i].y > 100.0) p[i].y = 100.0;
+    if (p[i].y > 10.0) p[i].y = 10.0;
     if (p[i].z < 0.00) p[i].z = 0.0;
-    if (p[i].z > 100.0) p[i].z = 100.0;
+    if (p[i].z > 10.0) p[i].z = 10.0;
     }
 }
 
@@ -202,17 +263,23 @@ void derivs(double x, double v[], double dv[]){
   int i,dim;  
   double roo,d,tau,gam,f,alfa;
   double *dvout;  
-  double *fa,*fx,*fy,*fz;
-  double *dd,*cc,*cx,*cy,*cz;
+  double *fa,*fx,*fy,*fz,*fangx,*fangy,*fangz;
+  double *rr,*dd,*cc,*cx,*cy,*cz;
   dd=dvector(1,par.n+1);
   cc=dvector(1,par.n+1);
+  rr=dvector(1,par.n+1);
   int j;
   d=par.d;
+  double cos_t;
   dim=3*par.n;  
   fa=dvector(1,3);
   fx=dvector(0,par.n);
   fy=dvector(0,par.n);
   fz=dvector(0,par.n);
+  fangx=dvector(0,par.n);
+  fangy=dvector(0,par.n);
+  fangz=dvector(0,par.n);
+
   cx=dvector(1,par.n+1);
   cy=dvector(1,par.n+1);
   cz=dvector(1,par.n+1);
@@ -221,7 +288,7 @@ void derivs(double x, double v[], double dv[]){
   fa[3]=cos(par.th);
   dvout=dvector(1,dim*2);  
   j = 1;
-
+  cos_t=0.866;
   /* Calculate forces to build linear conections of type:
         O=C=O=C=O=C=O...   */
 
@@ -229,12 +296,15 @@ void derivs(double x, double v[], double dv[]){
       if((i==(par.n/par.nb)*j) && (j<par.nb)){
       j++;
       } 
-      dd[i]=(1.-(d/(sqrt(pow((v[(3*i)-2]-v[(3*(i+1))-2]),2)+pow((v[(3*i)-1]-v[(3*(i+1))-1]),2)+pow((v[(3*i)]-v[(3*(i+1))]),2)))));
+      rr[i]=sqrt(pow((v[(3*i)-2]-v[(3*(i+1))-2]),2)+pow((v[(3*i)-1]-v[(3*(i+1))-1]),2)+pow((v[(3*i)]-v[(3*(i+1))]),2));
+      dd[i]=(1.-(d/(rr[i])));
 	    
       fx[i]=par.kd*dd[i]*(v[3*(i+1)-2]-v[(3*i)-2]);
       fy[i]=par.kd*dd[i]*(v[3*(i+1)-1]-v[(3*i)-1]);
       fz[i]=par.kd*dd[i]*(v[3*(i+1)]-v[(3*i)]);   
-      
+      fangx[i]=par.kang*(((v[(3*i+2)-2]-v[(3*(i+1))-2])/rr[i+1])-cos_t*(v[(3*i)-2]-v[(3*(i+1))-2])/(rr[i]));    
+      fangy[i]=par.kang*(((v[(3*i+2)-1]-v[(3*(i+1))-1])/rr[i+1])-cos_t*(v[(3*i)-1]-v[(3*(i+1))-1])/(rr[i]));
+      fangz[i]=par.kang*(((v[(3*i+2)]-v[(3*(i+1))])/rr[i+1])-cos_t*(v[(3*i)]-v[(3*(i+1))])/(rr[i]));
       /*Finish of linear conections*/
       /*Make bonds betwen segments ej:
       C=N=C=C=N=C
@@ -282,17 +352,17 @@ void derivs(double x, double v[], double dv[]){
       if((i==((par.n/par.nb)*j))&&(j<par.nb)){
       j++;
       } 
-    dvout[(3*i)-2+dim]=((fx[i]-fx[i-1]+cx[i])+fa[1]*par.f*cos(par.w*x)-((par.b*v[(3*i)-2+(dim)])))/masa[i];
+    dvout[(3*i)-2+dim]=((fx[i]-fx[i-1]+cx[i])+particles[i].charge*fa[1]*par.f*cos(par.w*x)-((par.b*v[(3*i)-2+(dim)])))/masa[i];
     dvout[(3*i)-2]=v[(3*i)-2+(dim)];
     dv[(3*i)-2]=dvout[(3*i)-2];
     dv[(3*i)-2+dim]=dvout[(3*i)-2+dim];
 
-    dvout[(3*i)-1+(dim)]=((fy[i]-fy[i-1]+cy[i])+fa[2]*par.f*cos(par.w*x)-((par.b*v[(3*i)-1+(dim)])))/masa[i] ;
+    dvout[(3*i)-1+(dim)]=((fy[i]-fy[i-1]+cy[i])+particles[i].charge*fa[2]*par.f*cos(par.w*x)-((par.b*v[(3*i)-1+(dim)])))/masa[i] ;
     dvout[(3*i)-1]=v[(3*i)-1+(dim)];
     dv[(3*i)-1]=dvout[(3*i)-1];
     dv[(3*i)-1+dim]=dvout[(3*i)-1+dim];
 
-    dvout[(3*i)+(dim)]=((fz[i]-fz[i-1]+cz[i])+fa[3]*par.f*cos(par.w*x)-((par.b*v[(3*i)+(dim)])))/masa[i];    
+    dvout[(3*i)+(dim)]=((fz[i]-fz[i-1]+cz[i])+particles[i].charge*fa[3]*par.f*cos(par.w*x)-((par.b*v[(3*i)+(dim)])))/masa[i];    
     dvout[(3*i)]=v[(3*i)+(dim)];
     dv[(3*i)]=dvout[(3*i)];
     dv[(3*i)+dim]=dvout[(3*i)+dim];
@@ -505,7 +575,7 @@ void rkdumb(double vstart[], int nvar, int nstep,
     }
     fprintf(gnuplot, "e\n");
 
-    if (par.num==2){
+    if ((par.num==2) || (par.num==3)){
     /* Send particle indices as labels */
         for (i = 0; i < n; i++) {
       fprintf(gnuplot, "%lf %lf %lf %s\n", particles[i].x, particles[i].y, particles[i].z, particles[i].name);
@@ -584,7 +654,7 @@ int main(int argc, char *argv[]) {
 
     
    
-    if (argc < 14) {
+    if (argc < 15) {
 		       
     printf("Uso: %s <N> <ttot> <f_ext> <w_ext> <k(bond)> <k(fold)> <b(damp)> <d> <d(fold)> <th> <phi> <nb> <fold> <num_part>\n", argv[0]);
     exit(1);
@@ -605,7 +675,14 @@ int main(int argc, char *argv[]) {
     par.nb=atoi(argv[12]);
     par.fold=atoi(argv[13]);
     par.num=atoi(argv[14]);
+    par.mol=atoi(argv[15]); //1 for polipeptide, 2 for CO2 chain, else random particles 
     //par.kc=par.kd/2; //constant for folded connections
+    if(par.mol==1) printf(" - Building alanine-like polypeptide chain\n");
+    else if(par.mol==2) {
+      printf(" - Building CO2 chain\n");
+      par.kang=par.kc; //angular constant
+    }
+    else printf(" - Building random particle system\n");  
     int steps;
     FILE *arch1;   
     masa=dvector(1,par.n);
@@ -627,11 +704,17 @@ int main(int argc, char *argv[]) {
 
      // Initialize particles: either build an alanine-like chain (if par.num==2)
      // or random positions/velocities otherwise.
-    if (par.num == 2) {
-      int residues = par.n / 3; /* C-N-C pattern -> 3 atoms per residue */
+    if (par.mol == 1) {
+      int residues = par.n / 3; /* N-C-C pattern -> 3 atoms per residue */
       if (residues < 1) residues = 1;
       build_chain(particles, residues);
-    } else {
+    } 
+    else if (par.mol ==2) {
+      int residues = par.n / 3; /* O-C-O pattern -> 3 atoms per residue */
+      if (residues < 1) residues = 1;
+      build_co2(particles, residues);
+    } 
+    else {
       for (i = 0; i < n_particles; i++) {
         double mass = ((1+pow(-1,i))/2)*1.99+((1+pow(-1,i+1))/2)*2.66;
         initialize_particle(&particles[i], 
@@ -639,17 +722,13 @@ int main(int argc, char *argv[]) {
                    (rand() / (double)RAND_MAX - 0.5) * 2,
                    (rand() / (double)RAND_MAX - 0.5) * 2,
                    (rand() / (double)RAND_MAX - 0.5) * 2,
-                   "C", mass);
+                   "C", mass,pow(-1,i));
       }
     }
-    /*
-/* Abrir Condiciones iniciales */
-  /*if(par.num==-1){
-	 
-    if((arch1=fopen("datos.dat", "r")) == NULL){
-    printf("No se puede leer el archivo/%s\n","cond_in_1.dat");
-  }
-  else
+ /*    Abrir Condiciones iniciales 
+  if(par.num==-1){
+    arch1=fopen("datos.dat","r");
+    
     printf(" - Datos de condiciones corrida anterior y masas cargados\n");
     int k;
     double tfin,aa[6];  
