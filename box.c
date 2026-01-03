@@ -16,7 +16,7 @@
 #define FNAMESIZE 64
 #define PI 3.14159265358979323846
 #define BOXL 15.
-#define RA 30.
+#define RA 50.
 #define RG 50.
 #define RS 0.00465
 //#define GM 1.32712440018e20*pow(UAM,3)*pow(YRSE,2) Es lo mismo
@@ -290,6 +290,86 @@ void elem_orbitales(Particle *sis){
 
 }
 
+/* Display and edit simulation parameters using ncurses */
+void display_and_edit_parameters(PAR *par) {
+  initscr();
+  cbreak();
+  noecho();
+  keypad(stdscr, TRUE);
+
+  int max_y, max_x;
+  getmaxyx(stdscr, max_y, max_x);
+
+  WINDOW *param_win = newwin(30, 60, 2, (max_x - 60) / 2);
+  box(param_win, 0, 0);
+
+  int selected = 0;
+  int running = 1;
+
+  while (running) {
+    wclear(param_win);
+    box(param_win, 0, 0);
+    mvwprintw(param_win, 1, 2, "=== SIMULATION PARAMETERS ===");
+    mvwprintw(param_win, 2, 2, "Use UP/DOWN arrows to select, ENTER to edit, 'q' to exit");
+    
+    int row = 4;
+    char *field_names[] = {
+      "n (particles)", "ttot (total time)", "w",
+      "k", "b", "c", "gam", "option (1/0)"
+    };
+    
+    mvwprintw(param_win, row++, 4, "n:        %d", par->n);
+    mvwprintw(param_win, row++, 4, "ttot:     %.4f", par->ttot);
+    mvwprintw(param_win, row++, 4, "w:        %.4f", par->w);
+    mvwprintw(param_win, row++, 4, "k:        %.4f", par->k);
+    mvwprintw(param_win, row++, 4, "b:        %.4f", par->b);
+    mvwprintw(param_win, row++, 4, "c:        %.4f", par->c);
+    mvwprintw(param_win, row++, 4, "gam:        %.4f", par->gam);
+    mvwprintw(param_win, row++, 4, "opt:      %d", par->opt);
+
+
+    /* Highlight selected line */
+    int highlight_row = 4 + selected;
+    mvwchgat(param_win, highlight_row, 4, 40, A_REVERSE, 0, NULL);
+
+    wrefresh(param_win);
+
+    int ch = getch();
+    if (ch == KEY_UP && selected > 0) selected--;
+    else if (ch == KEY_DOWN && selected < 8) selected++;
+    else if (ch == '\n') {
+
+  /* Edit selected parameter */
+      char input[20];
+      echo();
+      mvwprintw(param_win, 28, 4, "Enter new value: ");
+      wgetstr(param_win, input);
+      noecho();
+
+      if (strlen(input) > 0) {
+        switch (selected) {
+          case 0: par->n = atoi(input); break;
+          case 1: par->ttot = atof(input); break;
+          case 2: par->w = atof(input); break;
+          case 3: par->k = atof(input); break;
+          case 4: par->b = atof(input); break;
+          case 5: par->c = atof(input); break;
+          case 6: par->gam = atof(input); break;
+          case 7: par->opt = atoi(input); break;
+	 	 
+	  
+        }
+      }
+    } else if (ch == 'q' || ch == 'Q') {
+      running = 0;
+    }
+  }
+
+  delwin(param_win);
+  endwin();
+}
+
+
 void derivs(double x, double v[], double dv[]){
  int i,j,dim;  
  dim=par.n*3;
@@ -301,25 +381,6 @@ void derivs(double x, double v[], double dv[]){
 
 
 for(i=1;i<=n;i++){   
-	 if((v[(3*i)-2] <= RS)){ 
-	  dvout[(3*i)-2+dim]=0.0;
-	  dvout[(3*i)-2]=0.0;
-  	  v[(3*i)-2]=RS;	 
-	  dvout[(3*i)-1+dim]=0.0;
-	
-  	  dvout[(3*i)+dim]=0.0;
-  	i++;
-	 }
-	 else if (v[(3*i)-2]>1000.){
-	  dvout[(3*i)-2+dim]=0.0;
-	  dvout[(3*i)-2]=0.0;
-  	  v[(3*i)-2]=RS;	 
-	  dvout[(3*i)-1+dim]=0.0;
-	
-  	  dvout[(3*i)+dim]=0.0;
-  	i++;
-	 }
-
 	 
 	 dvout[(3*i)-2+dim]=v[(3*i)-2]*(pow(v[(3*i)-1+dim],2)+(sin(v[(3*i)-1])*pow(v[(3*i)+dim],2))+(pow(sin(v[(3*i)-1]),2)*omega*(omega+v[(i*3)+dim])))-(GM/pow(v[(3*i)-2],2))-(par.b*par.gam*v[(3*i)-2+dim]);    
 	 dvout[(3*i)-2]=v[(3*i)-2+(dim)];
@@ -347,7 +408,7 @@ for(i=1;i<=n;i++){
 
 
 
-void rkdumb(double vstart[], int nvar, int nstep,
+void rkdumb(double vstart[], int nvar, long nstep,
   void (*derivs)(double, double [], double [])){
   void rk4(double y[], double dydx[], int n, double x, double h, double yout[],
   void (*derivs)(double, double [], double []));
@@ -404,8 +465,15 @@ void rkdumb(double vstart[], int nvar, int nstep,
 
 
   j=1;
- 	g.gxmax=RG;
+ if(par.opt==0){
+        g.gxmax=RG/25;
+	g.gzmax=RG/25;
+ }
+ else{
+  	g.gxmax=RG;
 	g.gzmax=RG;
+ }
+
 double r2,rij;
    for (k=1;k<nstep/100;k++){ 	
 
@@ -422,8 +490,8 @@ double r2,rij;
     coord_i(v,p_p,par.n);
     polar_to_cart(particles,p_p,par.n);
     
- g.gxmax=RG; 
- g.gzmax=RG;    
+ //g.gxmax=RG; 
+ //g.gzmax=RG;    
     fprintf(gnuplot, "set title 'Particles (x,y,z) at t=%lf' \n", x);
     fprintf(gnuplot, "set xrange [%lf:%lf]\nset yrange [%lf:%lf]\nset zrange [%lf:%lf]\n",-g.gxmax,g.gxmax,-g.gxmax,g.gxmax,-g.gzmax,g.gzmax);
     fprintf(gnuplot, "set xlabel 'x'\nset ylabel 'y'\nset zlabel 'z'\n");
@@ -464,7 +532,7 @@ double r2,rij;
               break;
             } else if (ch == 'q' || ch == 'Q') {
               fprintf(stderr, "\nQuit requested. Exiting...\n");
-             // goto cleanup_and_exit;
+              goto cleanup_and_exit;
             }
           }
           usleep(100000);
@@ -486,7 +554,7 @@ for (k=(nstep/100)+1;k<95*nstep/100;k++){
       v[i]=vout[i];
     }
 if(count==100){
-	printf("%d\t%lf\n",k,x);
+	printf("%ld\t%lf\n",k,x);
 	count=0;
 }
 count++;
@@ -507,8 +575,8 @@ for (k=(95*nstep/100)+1;k<nstep;k++){
      coord_i(v,p_p,par.n);
     polar_to_cart(particles,p_p,par.n);
 
-g.gxmax=RG/3; 
- g.gzmax=RG/3;;    
+	g.gxmax=5.; 
+ 	g.gzmax=5.;    
     fprintf(gnuplot, "set title 'Particles (x,y,z) at t=%lf' \n", x);
     fprintf(gnuplot, "set xrange [%lf:%lf]\nset yrange [%lf:%lf]\nset zrange [%lf:%lf]\n",-g.gxmax,g.gxmax,-g.gxmax,g.gxmax,-g.gzmax,g.gzmax);
     fprintf(gnuplot, "set xlabel 'x'\nset ylabel 'y'\nset zlabel 'z'\n");
@@ -563,8 +631,11 @@ g.gxmax=RG/3;
 
 arch=fopen("datos.dat","w");
 for(i=0;i<par.n;i++){
+	if(sqrt(pow(particles[i].x,2)+pow(particles[i].y,2)+pow(particles[i].z,2)) < 500.){
 	fprintf(arch,"%d\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n",i,particles[i].x,particles[i].y,particles[i].z,particles[i].vx,particles[i].vy,particles[i].vz,masa[i]*1.e9,rad[i]);
+	}
 }
+
 fclose(arch);
 
 
@@ -581,7 +652,10 @@ cleanup_and_exit:
   }
  
   if (gnuplot) pclose(gnuplot);
-  if (arch) fclose(arch);
+//  if (arch) fclose(arch);
+ free_dvector(dv,1,nvar);
+  free_dvector(vout,1,nvar);
+  free_dvector(v,1,nvar);
 
 
 
@@ -605,6 +679,8 @@ int main(int argc, char *argv[]) {
     par.b=atof(argv[5]);
     par.c=atof(argv[6]);
     par.gam=atof(argv[7]);
+    par.opt=atoi(argv[8]);
+
     /*
    par.gopt=atoi(argv[8]);
     par.g=0;//atoi(argv[9]);
@@ -623,29 +699,33 @@ int main(int argc, char *argv[]) {
     particles = (Particle *)malloc(n * sizeof(Particle)); 
     p_p = (Particle *)malloc(n * sizeof(Particle)); 
 
-    int opc=1;
-    int i;
+    //int opc=0;
+    int i,j=0;
     double *vstart;
     vstart=dvector(1,dim);
-    double th;     
+    double th,dr=RA/5;     
         
-    if(opc==0){
+    if(par.opt==0){
 	elem_orbitales(p_p);
 	cart_to_polar(p_p,particles,par.n);	
     }
-    else{
-	    for (i = 0; i < n/4; i++) {
+    else if (par.opt==1){
+	    for (i = 0; i < n; i++) {
 	     th=(rand() / (double)RAND_MAX)*(int)(PI);
-             
+//             dr=(rand() / (double)RAND_MAX)*(double)(RA);
+		dr=RA;
 	     initialize_particle(&particles[i], 
-                   RA,
+                   dr,
 		   th,
 		   (rand() /  (double)RAND_MAX )*(int)(2.*PI),
                    0.0,
-		   par.k*((rand() / (double)RAND_MAX - 0.5) * 2)/RA,
-                   par.k*((rand() / (double)RAND_MAX - 0.5) * 2)/(RA*sin(th)),
+		   par.k*((rand() / (double)RAND_MAX - 0.5) * 2)/dr,
+                   par.k*((rand() / (double)RAND_MAX - 0.5) * 2)/(dr*sin(th)),
                    "O",  MP,QE,RP);
 	    }
+	
+    
+
 
     
 	     for(i=1;i<=n;i++){
@@ -655,12 +735,32 @@ int main(int argc, char *argv[]) {
 	     
     }	     
 	     armo_rk4_v(vstart, particles, n);
-             rkdumb(vstart,dim,steps,derivs);
+    /* Display parameters on startup */
+    display_and_edit_parameters(&par);
+    
+    rkdumb(vstart, dim, steps, derivs);
+    
+    /* After simulation, show parameters again for editing before re-run */
+    printf("\n\nSimulation completed. Edit parameters for next run?\n");
+    int opc = 1;
+    while(opc == 1) {
+      display_and_edit_parameters(&par);
+      printf("Run again? (1=yes, 0=no): ");
+      scanf("%d", &opc);
+      if (opc == 1) {
+        steps = par.ttot / DT;
+        armo_rk4_v(vstart, particles, n);
+        rkdumb(vstart, dim, steps, derivs);
+      }
+    }
+
+
+    free_dvector(masa,1,par.n);
+ 
  /* After simulation, show parameters again for editing before re-run */
     printf("\n\nSimulation completed. Edit parameters for next run?\n");
-   // opc = 0;
-      // free_dvector(masa,1,par.n);  	              	     
+ //       free_dvector(masa,1,par.n);  	              	     
  //	free_dvector(rad,1,par.n);
-  //   	free_dvector(vstart,1,dim);
+   //  	free_dvector(vstart,1,dim);
       	return(0);
 }
